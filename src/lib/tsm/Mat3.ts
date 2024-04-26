@@ -1,5 +1,3 @@
-import { Debugger } from "../webglutils/Debugging.js";
-
 import { Mat4 } from "./Mat4.js";
 import { Quat } from "./Quat.js";
 import { Vec2 } from "./Vec2.js";
