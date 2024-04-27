@@ -3,6 +3,7 @@ import { Vec4 } from "../lib/tsm/Vec4.js";
 import { CanvasAnimation } from "../lib/webglutils/CanvasAnimation.js";
 import { Shader, UniformType } from "./Shader.js";
 import { Handles } from "./Handles.js";
+import { Cage } from "./Cage.js";
 
 enum AnimationMode {
   Drawing,
@@ -15,15 +16,14 @@ export class CageAnimation extends CanvasAnimation {
   private width: number;
   private height: number;
 
-  private dragging: boolean;
-
   private easelShader: Shader;
   private pointShader: Shader;
   private lineShader: Shader;
 
-  private handles: Handles;
+  // private handles: Handles;
+  private cage: Cage;
   private mode: AnimationMode;
-  private static MAX_HANDLES = 64;
+  private deforming: boolean;
 
   constructor(canvas: HTMLCanvasElement) {
     super(canvas);
@@ -33,14 +33,7 @@ export class CageAnimation extends CanvasAnimation {
     this.backgroundColor = new Vec4([0.424, 0.725, 0.741, 1.0]);
     this.registerEventListeners();
 
-    this.initPointShader();
-    this.initLineShader();
-    this.initEasel();
-    
-    this.handles = new Handles(this);
-
-    this.dragging = false;
-    this.mode = AnimationMode.Drawing;
+    this.reset();
   }
 
   private initPointShader(): void {
@@ -52,11 +45,13 @@ export class CageAnimation extends CanvasAnimation {
       this.ctx.canvas.width, 
       this.ctx.canvas.height
     ], UniformType.FLOAT2);
+    this.pointShader.addUniform('u_highlighted', [], UniformType.FLOAT2);
   }
 
   private initLineShader(): void {
     this.lineShader = new Shader(this.ctx, lineVSText, lineFSText, this.ctx.LINES);
     this.lineShader.addAttribute('a_position', [], 2);
+    this.lineShader.addAttribute('a_offset', [], 2);
     this.lineShader.setNumDrawElements(0);
     this.lineShader.addUniform('u_resolution', [
       this.ctx.canvas.width, 
@@ -94,7 +89,7 @@ export class CageAnimation extends CanvasAnimation {
     ], 2);
     this.easelShader.addTexture('static/pikmin.png');
     this.easelShader.addUniform('u_resolution', [this.ctx.canvas.width, this.ctx.canvas.height], UniformType.FLOAT2);
-    this.easelShader.addUniform('u_handles', [], UniformType.FLOAT2ARRAY);
+    this.easelShader.addUniform('u_vertices', [], UniformType.FLOAT2ARRAY);
     this.easelShader.addUniform('u_offsets', [], UniformType.FLOAT2ARRAY);
     this.easelShader.addUniform('u_num_handles', [], UniformType.FLOAT);
   }
@@ -103,6 +98,13 @@ export class CageAnimation extends CanvasAnimation {
    * Setup the simulation. This can be called again to reset the program.
    */
   public reset(): void {    
+    this.initPointShader();
+    this.initLineShader();
+    this.initEasel();
+    
+    this.cage = new Cage(this);
+    this.mode = AnimationMode.Drawing;
+    this.deforming = false;
   }
 
   /**
@@ -124,13 +126,12 @@ export class CageAnimation extends CanvasAnimation {
     gl.frontFace(gl.CCW);
     gl.cullFace(gl.BACK);
 
-    let offsets = this.handles.getOffsets();
-    let handles = this.handles.getHandles();
+    let handles = this.cage.getVertices();
+    let offsets = this.cage.getOffsets();
 
-    this.pointShader.updateUniformData('u_offsets', offsets);
-    this.easelShader.updateUniformData('u_handles', handles);
+    this.pointShader.updateUniformData('u_highlighted', this.cage.getHighlighted());
+    this.easelShader.updateUniformData('u_vertices', handles);
     this.easelShader.updateUniformData('u_offsets', offsets);
-    console.log('u_num_handles: ' + handles.length / 2);
     this.easelShader.updateUniformData('u_num_handles', [handles.length / 2]);
 
     this.pointShader.draw();
@@ -139,84 +140,103 @@ export class CageAnimation extends CanvasAnimation {
   }
 
   private mouseClick(mouse: MouseEvent): void {
-    console.log('Mouse clicked (' + mouse.clientX + ', ' + mouse.clientY + ')');
+    // console.log('Mouse clicked (' + mouse.clientX + ', ' + mouse.clientY + ')');
+
+    let rect = this.c.getBoundingClientRect();
+    let x = mouse.clientX - rect.left;
+    let y = mouse.clientY - rect.top;
+    if (!(x >= 0 && x <= this.c.width && y >= 0 && y <= this.c.height)) {
+      return;
+    }
 
     if (this.mode == AnimationMode.Drawing) {
-      let data = this.pointShader.getAttributeData('a_position');
+      this.cage.addPoint(x, y);
+    }
 
-      if (data.length == CageAnimation.MAX_HANDLES * 2) {
-        console.error("ERROR: Max handles reached.");
-        return;
-      }
-
-      this.handles.addHandle(mouse.clientX, mouse.clientY);
-
-
-      // Create a new point at this position.
-      let handles = this.handles.getHandles();
-      this.pointShader.updateAttributeData('a_position', handles, 2);
-      this.pointShader.setNumDrawElements(handles.length / 2);
-
-      let offsets = this.handles.getOffsets();
-      this.pointShader.updateAttributeData('a_offset', offsets, 2);
-
-      let offsetData = this.pointShader.getAttributeData('a_offset');
-      offsetData.push(0);
-      offsetData.push(0);
-      this.pointShader.updateAttributeData('a_offset', offsetData, 2);
-
+    if (this.mode == AnimationMode.Deform) {
+      // If not currently deforming, attempt to grab a vertex.
+      if (!this.deforming) {
+        if (this.cage.getHighlightedIndex() >= 0) {
+          this.deforming = true;
+        }
+     }
     }
   }
 
   private mouseDrag(mouse: MouseEvent): void {
-    if (this.dragging) {
-      // Get position of last point added.
-      let data = this.pointShader.getAttributeData('a_position');
-
-      let lineData = data.slice();
-      lineData.push(mouse.clientX);
-      lineData.push(mouse.clientY);
-
-      this.lineShader.updateAttributeData('a_position', lineData, 2);
-      this.lineShader.setNumDrawElements(lineData.length / 2);
+    let rect = this.c.getBoundingClientRect();
+    let x = mouse.clientX - rect.left;
+    let y = mouse.clientY - rect.top;
+    if (!(x >= 0 && x <= this.c.width && y >= 0 && y <= this.c.height)) {
+      return;
     }
-  }
 
-  private endLineDraw(): void {
-    if (this.dragging) {
-      this.dragging = false;
-    }
-  }
-
-  private offsetHandle(offset: number): void {
     if (this.mode == AnimationMode.Deform) {
-      this.handles.offsetHandle(0, offset, 0);
-      this.handles.offsetHandle(1, -offset, 0);
-      this.pointShader.updateAttributeData('a_offset', this.handles.getOffsets(), 2);
+      if (this.deforming) {
+        this.cage.offsetVertex(this.cage.getHighlightedIndex(), x, y);
+      }
+      else {
+        // If not currently deforming, just set the highlighted vertex.
+        let vertexNo = this.cage.getHoveredVertex(x, y);
+        this.cage.setHighlighted(vertexNo);
+        if (vertexNo == -2) {
+          return;
+        }
+      }
+    }
+    if (this.mode == AnimationMode.Drawing && this.cage.isDrawing()) {
+      this.cage.drawLineToCursor(x, y);
+    }
+  }
+
+  private mouseUp(mouse: MouseEvent): void {
+    if (this.mode == AnimationMode.Deform && this.deforming) {
+      this.deforming = false;
     }
   }
 
   private onKeydown(key: KeyboardEvent): void {
     switch (key.code) {
+      case 'KeyA':
+        if (this.mode == AnimationMode.Deform) {
+          this.cage.offsetActive(-1, 0);
+        }
+        break;
+      case 'KeyD':
+        if (this.mode == AnimationMode.Deform) {
+          this.cage.offsetActive(1, 0);
+        }
+        break;
+      case 'KeyW':
+        if (this.mode == AnimationMode.Deform) {
+          this.cage.offsetActive(0, -1);
+        }
+        break;
+      case 'KeyS':
+        if (this.mode == AnimationMode.Deform) {
+          this.cage.offsetActive(0, 1);
+        }
+        break;
       case 'KeyR':
-        this.handles.clearOffsets();
-        this.mode = AnimationMode.Drawing;
+        this.reset();
+        break;
+      case 'Enter':
+        this.cage.closeCage();
         break;
       case 'Digit1':
-        this.handles.clearOffsets();
+        this.cage.clearOffsets();
         this.mode = AnimationMode.Drawing;
         break;
       case 'Digit2':
         this.mode = AnimationMode.Deform;
         break;
       case 'ArrowLeft':
-        this.offsetHandle(-5);
+        // this.offsetHandle(-5);
+        // this.cage.cycleHighlighted(-1);
         break;
       case 'ArrowRight':
-        this.offsetHandle(5);
-        break;
-      case 'Escape':
-        this.endLineDraw();
+        // this.cage.cycleHighlighted(1);
+        // this.offsetHandle(5);
         break;
       default:
         console.log('Key ' + key.code + ' pressed.');
@@ -236,8 +256,15 @@ export class CageAnimation extends CanvasAnimation {
       this.onKeydown(key)
     );
 
+    window.addEventListener("mouseup", (mouse: MouseEvent) => 
+      this.mouseUp(mouse)
+    );
+
 
   }
+
+  public getPointShader(): Shader { return this.pointShader; }
+  public getLineShader(): Shader { return this.lineShader; }
 }
 
 export function initializeCanvas(): void {
