@@ -85,6 +85,20 @@ export class Cage {
         this.lines.pop();
     }
 
+    private resetLines(): void {
+        this.lines = [];
+        for (let j = 2; j < this.vertices.length; j += 2) {
+            this.lines[j - 2] = this.vertices[j - 2]; 
+            this.lines[j - 1] = this.vertices[j - 1]; 
+            this.lines[j] = this.vertices[j]; 
+            this.lines[j + 1] = this.vertices[j + 1]; 
+        }
+        this.lines.push(this.vertices[this.vertices.length - 2]);
+        this.lines.push(this.vertices[this.vertices.length - 1]);
+        this.lines.push(this.vertices[0]);
+        this.lines.push(this.vertices[1]);
+    }
+
     public closeCage(): void {
         this.removeLastLine();
         this.addLine(
@@ -103,7 +117,8 @@ export class Cage {
         for (let i = 0; i < this.offsets.length; i++) {
             this.offsets[i] = 0;
         }
-        
+
+        this.resetLines();
         this.updatePointShader();
         this.updateLineShader();
     }
