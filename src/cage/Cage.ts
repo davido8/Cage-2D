@@ -5,6 +5,7 @@ export class Cage {
 
     private vertices: number[];
     private offsets: number[]; 
+
     private lines: number[];
 
     private highlighted: number;
@@ -21,15 +22,17 @@ export class Cage {
     }
 
     public addPoint(x: number, y: number): void {
-        // if (this.vertices.length != 0 ) {
-            // console.error("ERROR: Reset cage in order to draw new cage.");
-            // return;
-        // }
+        /* Only support one cage at a time for now. */
+        if (this.vertices.length != 0 && !this.drawing) {
+            console.info("INFO: Reset cage in order to draw new cage.");
+            return;
+        }
 
         if (this.vertices.length == 0) {
             this.drawing = true;
         }
 
+        /* Start drawing lines between last point and cursor. */
         if (this.vertices.length > 0) {
             this.addLine(
                 this.vertices[this.vertices.length - 2],
@@ -39,19 +42,14 @@ export class Cage {
             );
         }
 
-        
-        // Add point.
+        /* Add vertex with no initial offset. */
         this.vertices.push(x);
         this.vertices.push(y);
         this.offsets.push(0);
         this.offsets.push(0);
 
-        let pShader = this.animation.getPointShader();
-  
-        // Update shaders with new data.
-        pShader.updateAttributeData('a_position', this.vertices, 2);
-        pShader.updateAttributeData('a_offset', this.offsets, 2);
-        pShader.setNumDrawElements(this.vertices.length / 2);
+        /* Make sure to propagate changes to the shader. */
+        this.updatePointShader();
     }
 
     public drawLineToCursor(x: number, y: number): void {
@@ -77,10 +75,7 @@ export class Cage {
         this.lines.push(endX);
         this.lines.push(endY);
 
-        let lShader = this.animation.getLineShader();
-
-        lShader.updateAttributeData('a_position', this.lines, 2);
-        lShader.setNumDrawElements(this.lines.length / 2);
+        this.updateLineShader();
     } 
 
     private removeLastLine(): void {
@@ -93,35 +88,24 @@ export class Cage {
     public closeCage(): void {
         this.removeLastLine();
         this.addLine(
-            this.vertices[0],
-            this.vertices[1],
             this.vertices[this.vertices.length - 2],
-            this.vertices[this.vertices.length - 1]
+            this.vertices[this.vertices.length - 1],
+            this.vertices[0],
+            this.vertices[1]
         );
         this.drawing = false;
 
-        console.log('Lines: ' + this.lines.length / 4);
-        console.log('Points: ' + this.vertices.length / 2);
+        console.log('Final vertices: ' + this.vertices);
+        console.log('Final lines: ' + this.lines);
     }
 
     public clearOffsets(): void {
         for (let i = 0; i < this.offsets.length; i++) {
             this.offsets[i] = 0;
         }
-        let pShader = this.animation.getPointShader();
-        pShader.updateAttributeData('a_offset', this.offsets, 2);
-    }
-
-    public cycleHighlighted(step: number): void {
-        this.highlighted += 2*step;
-
-        if (this.highlighted >= this.vertices.length) {
-            this.highlighted = 0;
-        }
-
-        if (this.highlighted < 0) {
-            this.highlighted = this.vertices.length - 2;
-        }
+        
+        this.updatePointShader();
+        this.updateLineShader();
     }
 
     public setHighlighted(index: number): void {
@@ -146,22 +130,23 @@ export class Cage {
         ];
     }
 
-    public offsetActive(x: number, y: number): void {
-        this.offsets[this.highlighted] += x;
-        this.offsets[this.highlighted + 1] += y;
-
-        let pShader = this.animation.getPointShader();
-        // let lShader = this.animation.getLineShader();
-        pShader.updateAttributeData('a_offset', this.offsets, 2);
-        // lShader.updateAttributeData('a_offset', this.offsets, 2);
-    }
-
     public offsetVertex(index: number, mouseX: number, mouseY: number): void {
+        let vertexX = this.vertices[index] + this.offsets[index];
+        let vertexY = this.vertices[index + 1] + this.offsets[index + 1];
+
+        /* TODO: Probably a much better way to do this than by looping... */
+        for (let i = 0; i < this.lines.length; i += 2) {
+            if (this.lines[i] == vertexX && this.lines[i + 1] == vertexY) {
+                this.lines[i] = this.vertices[index] + (mouseX - this.vertices[index]);
+                this.lines[i + 1] = this.vertices[index + 1] + (mouseY - this.vertices[index + 1]);
+            }
+        }
+
         this.offsets[index] = mouseX - this.vertices[index];
         this.offsets[index + 1] = mouseY - this.vertices[index + 1];
 
-        let pShader = this.animation.getPointShader();
-        pShader.updateAttributeData('a_offset', this.offsets, 2);
+        this.updatePointShader();
+        this.updateLineShader();
     }
 
     public getHoveredVertex(x: number, y: number): number {
@@ -185,9 +170,17 @@ export class Cage {
         return closestIndex;
     }
 
-    public getVertex(index: number): number[] {
-        if (index % 2 != 0) { return []; }
-        return [this.vertices[index], this.vertices[index + 1]];
+    private updatePointShader(): void {
+        let pShader = this.animation.getPointShader();
+        pShader.updateAttributeData('a_position', this.vertices, 2);
+        pShader.updateAttributeData('a_offset', this.offsets, 2);
+        pShader.setNumDrawElements(this.vertices.length / 2);
+    }
+
+    private updateLineShader(): void {
+        let lShader = this.animation.getLineShader();
+        lShader.updateAttributeData('a_position', this.lines, 2);
+        lShader.setNumDrawElements(this.lines.length / 2);
     }
 
     public getVertices(): number[] { return this.vertices; }

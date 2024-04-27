@@ -36,6 +36,19 @@ export class CageAnimation extends CanvasAnimation {
     this.reset();
   }
 
+  /**
+   * Setup the simulation. This can be called again to reset the program.
+   */
+  public reset(): void {    
+    this.initPointShader();
+    this.initLineShader();
+    this.initEasel();
+    
+    this.cage = new Cage(this);
+    this.mode = AnimationMode.Drawing;
+    this.deforming = false;
+  }
+
   private initPointShader(): void {
     this.pointShader = new Shader(this.ctx, pointVSText, pointFSText, this.ctx.POINTS);
     this.pointShader.addAttribute('a_position', [], 2);
@@ -49,9 +62,8 @@ export class CageAnimation extends CanvasAnimation {
   }
 
   private initLineShader(): void {
-    this.lineShader = new Shader(this.ctx, lineVSText, lineFSText, this.ctx.LINES);
+    this.lineShader = new Shader(this.ctx, lineVSText, lineFSText, this.ctx.LINE_STRIP);
     this.lineShader.addAttribute('a_position', [], 2);
-    this.lineShader.addAttribute('a_offset', [], 2);
     this.lineShader.setNumDrawElements(0);
     this.lineShader.addUniform('u_resolution', [
       this.ctx.canvas.width, 
@@ -94,23 +106,6 @@ export class CageAnimation extends CanvasAnimation {
     this.easelShader.addUniform('u_num_handles', [], UniformType.FLOAT);
   }
 
-  /**
-   * Setup the simulation. This can be called again to reset the program.
-   */
-  public reset(): void {    
-    this.initPointShader();
-    this.initLineShader();
-    this.initEasel();
-    
-    this.cage = new Cage(this);
-    this.mode = AnimationMode.Drawing;
-    this.deforming = false;
-  }
-
-  /**
-   * Draws a single frame
-   *
-   */
   public draw(): void {
     let gl = this.ctx;
     let bg = this.backgroundColor;
@@ -184,6 +179,7 @@ export class CageAnimation extends CanvasAnimation {
         }
       }
     }
+
     if (this.mode == AnimationMode.Drawing && this.cage.isDrawing()) {
       this.cage.drawLineToCursor(x, y);
     }
@@ -197,31 +193,12 @@ export class CageAnimation extends CanvasAnimation {
 
   private onKeydown(key: KeyboardEvent): void {
     switch (key.code) {
-      case 'KeyA':
-        if (this.mode == AnimationMode.Deform) {
-          this.cage.offsetActive(-1, 0);
-        }
-        break;
-      case 'KeyD':
-        if (this.mode == AnimationMode.Deform) {
-          this.cage.offsetActive(1, 0);
-        }
-        break;
-      case 'KeyW':
-        if (this.mode == AnimationMode.Deform) {
-          this.cage.offsetActive(0, -1);
-        }
-        break;
-      case 'KeyS':
-        if (this.mode == AnimationMode.Deform) {
-          this.cage.offsetActive(0, 1);
-        }
-        break;
       case 'KeyR':
         this.reset();
         break;
       case 'Enter':
         this.cage.closeCage();
+        this.mode = AnimationMode.Deform;
         break;
       case 'Digit1':
         this.cage.clearOffsets();
@@ -229,14 +206,6 @@ export class CageAnimation extends CanvasAnimation {
         break;
       case 'Digit2':
         this.mode = AnimationMode.Deform;
-        break;
-      case 'ArrowLeft':
-        // this.offsetHandle(-5);
-        // this.cage.cycleHighlighted(-1);
-        break;
-      case 'ArrowRight':
-        // this.cage.cycleHighlighted(1);
-        // this.offsetHandle(5);
         break;
       default:
         console.log('Key ' + key.code + ' pressed.');
@@ -259,8 +228,6 @@ export class CageAnimation extends CanvasAnimation {
     window.addEventListener("mouseup", (mouse: MouseEvent) => 
       this.mouseUp(mouse)
     );
-
-
   }
 
   public getPointShader(): Shader { return this.pointShader; }

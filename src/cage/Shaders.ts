@@ -48,7 +48,6 @@ export const pointFSText = `#version 300 es
 export const lineVSText = `#version 300 es
 
     in vec2 a_position;
-    in vec2 a_offset;
 
     uniform vec2 u_resolution;
     
