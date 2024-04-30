@@ -75,49 +75,42 @@ export const lineFSText = `#version 300 es
 export const easelVSText = `#version 300 es
 
     in vec2 a_position;
-    in vec2 a_texcoord;
+    in vec2 a_translation;
+    in vec4 a_color;
 
     uniform vec2 u_resolution;
+    uniform vec2 u_gridSize;
 
-    out vec2 f_pixel;
-    out vec2 f_texcoord;
+    out vec4 f_color;
+    out vec2 f_uv;
 
-    
     void main () {
-        vec2 clipCoordinates = a_position / u_resolution;
+        vec2 clipCoordinates = (a_position + a_translation) / u_resolution;
         clipCoordinates *= 2.0;
         clipCoordinates -= 1.0;
         clipCoordinates.y *= -1.0;
 
         gl_Position = vec4(clipCoordinates, 0.0, 1.0);
 
-        f_texcoord = a_texcoord;
-        f_pixel = a_position;
+        f_uv = a_translation / u_gridSize;
+        f_color = a_color;
     }
 `;
 
 export const easelFSText = `#version 300 es
 
     precision mediump float;
-    in vec2 f_texcoord;
-    in vec2 f_pixel;
 
-    uniform float u_num_handles;
-    uniform vec2 u_vertices[64];
-    uniform vec2 u_offsets[64];
+    in vec2 f_uv;
+    in vec4 f_color;
+
     uniform sampler2D u_texture;
 
     out vec4 FragColor;
 
 
     void main() {
-        // Calculate MVC.
-
-        // Add that handle's offset to us.
-        // vec2 tex_offset = u_offsets[closestHandle] / 1800.0;
-        // vec2 deformedUV = f_texcoord + tex_offset;
-        
-        // FragColor = texture(u_texture, deformedUV);
-        FragColor = texture(u_texture, f_texcoord);
+        FragColor = f_color;
+        FragColor = texture(u_texture, f_uv);
     }
 `;

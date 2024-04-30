@@ -85,6 +85,9 @@ class Attribute {
     }
 
     public getData(): number[] { return this.data; }
+    public setPerInstance(): void { 
+        this.ctx.vertexAttribDivisor(this.location, 1);
+    }
 }
 
 class Uniform {
@@ -186,6 +189,11 @@ export class Shader {
         ));
     }
 
+    public addInstancedAttribute(attrib: string, bufferData: number[], elementSize: number) {
+        this.addAttribute(attrib, bufferData, elementSize);
+        this.attributes.get(attrib)?.setPerInstance();
+    }
+
     public getAttributeData(attrib: string): number[] {
         let data = this.attributes.get(attrib)?.getData();
         return data === undefined ? [] : data;
@@ -224,6 +232,8 @@ export class Shader {
         image.addEventListener('load', function() {
             // Now that the image has loaded make copy it to the texture.
             gl.bindTexture(gl.TEXTURE_2D, texture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA,gl.UNSIGNED_BYTE, image);
             gl.generateMipmap(gl.TEXTURE_2D);
         });
@@ -240,5 +250,14 @@ export class Shader {
         gl.bindVertexArray(this.vertexArray);
 
         gl.drawArrays(this.shapeType, 0, this.numElements);
+    }
+
+    public drawInstanced(instances: number) {
+        let gl = this.ctx;
+
+        gl.useProgram(this.program);
+        gl.bindVertexArray(this.vertexArray);
+
+        gl.drawArraysInstanced(this.shapeType, 0, this.numElements, instances);
     }
 }

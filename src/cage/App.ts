@@ -25,6 +25,9 @@ export class CageAnimation extends CanvasAnimation {
   private mode: AnimationMode;
   private deforming: boolean;
 
+  private static gridSize: number = 1000; // Number of squares along one edge of grid
+
+
   constructor(canvas: HTMLCanvasElement) {
     super(canvas);
 
@@ -80,6 +83,13 @@ export class CageAnimation extends CanvasAnimation {
     let top = heightOffset;
     let bottom = this.height - heightOffset;
 
+    let easelWidth = right - left;
+    let easelHeight = bottom - top;
+
+    let cellSize = easelWidth / CageAnimation.gridSize;
+    right = left + cellSize;
+    bottom = top + cellSize;
+
     this.easelShader = new Shader(this.ctx, easelVSText, easelFSText, this.ctx.TRIANGLES);
     this.easelShader.addAttribute('a_position', [
       right, bottom,
@@ -88,22 +98,33 @@ export class CageAnimation extends CanvasAnimation {
 
       right, top,
       left, top,
-      right, bottom
-    ], 2);
+      right, bottom], 
+      2
+    );
+
+    let uv: number[] = [];
+    let colors: number[] = [];
+    let translations: number[] = [];
+    for (let i = 0; i < CageAnimation.gridSize; i++) {
+      for (let j = 0; j < CageAnimation.gridSize; j++) {
+        translations.push(i*cellSize);
+        translations.push(j*cellSize);
+        colors.push(Math.random());
+        colors.push(Math.random());
+        colors.push(Math.random());
+        colors.push(Math.random());
+        uv.push(i / 1.0);
+        uv.push();
+      }
+    }
+
+    this.easelShader.addInstancedAttribute('a_translation', translations, 2);
+    this.easelShader.addInstancedAttribute('a_color', colors, 4);
     this.easelShader.setNumDrawElements(6);
-    this.easelShader.addAttribute('a_texcoord', [
-      1, 1,
-      0, 0,
-      0, 1,
-      1, 0,
-      0, 0,
-      1, 1
-    ], 2);
-    this.easelShader.addTexture('static/pikmin.png');
+
     this.easelShader.addUniform('u_resolution', [this.ctx.canvas.width, this.ctx.canvas.height], UniformType.FLOAT2);
-    this.easelShader.addUniform('u_vertices', [], UniformType.FLOAT2ARRAY);
-    this.easelShader.addUniform('u_offsets', [], UniformType.FLOAT2ARRAY);
-    this.easelShader.addUniform('u_num_handles', [], UniformType.FLOAT);
+    this.easelShader.addUniform('u_gridSize', [easelWidth, easelHeight], UniformType.FLOAT2)
+    this.easelShader.addTexture('static/pikmin.png');
   }
 
   public draw(): void {
@@ -131,7 +152,7 @@ export class CageAnimation extends CanvasAnimation {
 
     this.pointShader.draw();
     this.lineShader.draw();
-    this.easelShader.draw();
+    this.easelShader.drawInstanced(CageAnimation.gridSize**2);
   }
 
   private mouseClick(mouse: MouseEvent): void {
