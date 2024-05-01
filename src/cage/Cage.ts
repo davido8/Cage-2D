@@ -12,6 +12,9 @@ export class Cage {
 
     private drawing: boolean;
 
+    private closed: boolean;
+    private mvcGenerated: boolean;
+
     constructor(ani: CageAnimation) {
         this.vertices = [];
         this.offsets = [];
@@ -109,6 +112,8 @@ export class Cage {
         );
         this.drawing = false;
 
+        this.closed = true;
+
         console.log('Final vertices: ' + this.vertices);
         console.log('Final lines: ' + this.lines);
     }
@@ -198,6 +203,7 @@ export class Cage {
         lShader.setNumDrawElements(this.lines.length / 2);
     }
 
+    public isClosed(): boolean { return this.closed; }
     public getVertices(): number[] { return this.vertices; }
     public getOffsets(): number[] { return this.offsets; }
     public isDrawing(): boolean { return this.drawing; }

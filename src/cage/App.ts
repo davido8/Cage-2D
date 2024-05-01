@@ -4,6 +4,7 @@ import { CanvasAnimation } from "../lib/webglutils/CanvasAnimation.js";
 import { Shader, UniformType } from "./Shader.js";
 import { Handles } from "./Handles.js";
 import { Cage } from "./Cage.js";
+import { Vec2 } from "../lib/tsm/Vec2.js";
 
 enum AnimationMode {
   Drawing,
@@ -102,28 +103,23 @@ export class CageAnimation extends CanvasAnimation {
       2
     );
 
-    let uv: number[] = [];
-    let colors: number[] = [];
     let translations: number[] = [];
     for (let i = 0; i < CageAnimation.gridSize; i++) {
       for (let j = 0; j < CageAnimation.gridSize; j++) {
         translations.push(i*cellSize);
         translations.push(j*cellSize);
-        colors.push(Math.random());
-        colors.push(Math.random());
-        colors.push(Math.random());
-        colors.push(Math.random());
-        uv.push(i / 1.0);
-        uv.push();
       }
     }
 
     this.easelShader.addInstancedAttribute('a_translation', translations, 2);
-    this.easelShader.addInstancedAttribute('a_color', colors, 4);
     this.easelShader.setNumDrawElements(6);
 
     this.easelShader.addUniform('u_resolution', [this.ctx.canvas.width, this.ctx.canvas.height], UniformType.FLOAT2);
     this.easelShader.addUniform('u_gridSize', [easelWidth, easelHeight], UniformType.FLOAT2)
+    this.easelShader.addUniform('u_numCageVertices', [], UniformType.FLOAT);
+    this.easelShader.addUniform('u_vertices', [], UniformType.FLOAT2ARRAY);
+    this.easelShader.addUniform('u_offsets', [], UniformType.FLOAT2ARRAY);
+    this.easelShader.addUniform('u_cageGenerated', [], UniformType.FLOAT);
     this.easelShader.addTexture('static/pikmin.png');
   }
 
@@ -144,11 +140,13 @@ export class CageAnimation extends CanvasAnimation {
 
     let handles = this.cage.getVertices();
     let offsets = this.cage.getOffsets();
+    let deform = this.cage.isClosed() ? 1 : 0;
 
     this.pointShader.updateUniformData('u_highlighted', this.cage.getHighlighted());
     this.easelShader.updateUniformData('u_vertices', handles);
     this.easelShader.updateUniformData('u_offsets', offsets);
-    this.easelShader.updateUniformData('u_num_handles', [handles.length / 2]);
+    this.easelShader.updateUniformData('u_numCageVertices', [handles.length / 2]);
+    this.easelShader.updateUniformData('u_cageGenerated', [deform]);
 
     this.pointShader.draw();
     this.lineShader.draw();
@@ -212,6 +210,80 @@ export class CageAnimation extends CanvasAnimation {
     }
   }
 
+  private W(triangle: Vec2[]): number {
+    let v0_normal = new Vec2(triangle[0].xy);
+    let v1_normal = new Vec2(triangle[1].xy);
+    let v2_normal = new Vec2(triangle[2].xy);
+
+    v0_normal.normalize();
+    v1_normal.normalize();
+    v2_normal.normalize();
+
+    let thetai = Math.acos(Vec2.dot(v0_normal, v1_normal));
+    let thetaj = Math.acos(Vec2.dot(v0_normal, v2_normal));
+
+    let w = Math.tan(thetai / 2.0) + Math.tan(thetaj / 2.0);
+
+    return w / Vec2.difference(triangle[1], triangle[0]).length();
+  }
+
+  private generateMVC(): void {
+    // Turn cage vertices in vec2 array.
+    let rawVertices = this.cage.getVertices();
+    let cageVertices: Vec2[] = [];
+    for (let i = 0; i < rawVertices.length; i += 2) {
+      cageVertices.push(new Vec2([
+        rawVertices[i], 
+        rawVertices[i + 1]
+      ]));
+    }
+
+    // Turn every grid vertex into a vec2.
+    let rawPos = this.easelShader.getAttributeData('a_position');
+    let rawOff = this.easelShader.getAttributeData('a_translation');
+    let gridVertices: Vec2[] = [];
+    for (let i = 0; i < rawOff.length; i += 2) {
+      gridVertices.push(new Vec2([
+        rawPos[0] + rawOff[i],
+        rawPos[1] + rawOff[i + 1],
+      ]));
+    }
+    console.log(rawOff);
+
+    let allWeights: number[] = [];
+
+    // Calculate the weights of each cage vertex on each grid vertex.
+    for (let i = 0; i < gridVertices.length; i++) {
+      let gridVertex = gridVertices[i];
+      console.log('Grid vertex ' + gridVertex.xy);
+
+      let weights: number[] = [];
+      for (let j = 0; j < cageVertices.length; j++) {
+        let triangle: Vec2[] = [];
+        triangle.push(gridVertex);
+        triangle.push(cageVertices[j]);
+        triangle.push(cageVertices[j + 1 == cageVertices.length ? 0 : j + 1]);
+
+        let wi = this.W(triangle);
+
+        let cumsum = 0.0;
+        for (let k = 0; k < cageVertices.length; k++) {
+          triangle = [];
+          triangle.push(gridVertex);
+          triangle.push(cageVertices[k]);
+          triangle.push(cageVertices[k + 1 == cageVertices.length ? 0 : k + 1]);
+          cumsum += this.W(triangle);
+        }
+
+        weights.push(wi / cumsum);
+      }
+
+      allWeights.push(...weights);
+    }
+
+    console.log(allWeights);
+  }
+
   private onKeydown(key: KeyboardEvent): void {
     switch (key.code) {
       case 'KeyR':
@@ -219,6 +291,7 @@ export class CageAnimation extends CanvasAnimation {
         break;
       case 'Enter':
         this.cage.closeCage();
+        // this.generateMVC();
         this.mode = AnimationMode.Deform;
         break;
       case 'Digit1':
