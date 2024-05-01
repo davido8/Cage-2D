@@ -163,6 +163,8 @@ export class Shader {
     private attributes: Map<string, Attribute>;
     private uniforms: Map<string, Uniform>;
 
+    private numTextures: number;
+
     constructor(ctx: WebGL2RenderingContext, vShaderText: string, fShaderText: string, type: GLenum) {
         this.ctx = ctx;
         this.program = WebGLUtilities.createProgram(ctx, vShaderText, fShaderText);
@@ -176,6 +178,7 @@ export class Shader {
         
         this.attributes = new Map();
         this.uniforms = new Map();
+        this.numTextures = 0;
     }
 
     public addAttribute(attrib: string, bufferData: number[], elementSize: number) {
@@ -221,6 +224,8 @@ export class Shader {
     public addTexture(imagename: string): void {
         let gl = this.ctx;
 
+        let program = this.program;
+
         let texture = gl.createTexture();
         gl.bindTexture(gl.TEXTURE_2D, texture);
 
@@ -230,13 +235,44 @@ export class Shader {
         var image = new Image();
         image.src = imagename;
         image.addEventListener('load', function() {
+            let loc = gl.getUniformLocation(program, 'u_texture');
+            gl.uniform1i(loc, 0);
+            gl.activeTexture(gl.TEXTURE0);
             // Now that the image has loaded make copy it to the texture.
             gl.bindTexture(gl.TEXTURE_2D, texture);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA,gl.UNSIGNED_BYTE, image);
             gl.generateMipmap(gl.TEXTURE_2D);
+            
         });
+    }
+
+    public addDataTexture(uniform: string, data: number[], width: number, height: number): void {
+        let gl = this.ctx;
+
+        gl.useProgram(this.program);
+        let texture = gl.createTexture();
+        let loc = gl.getUniformLocation(this.program, uniform);
+        gl.uniform1i(loc, 1);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+
+        const level = 0;
+        const internalFormat = gl.R32F;
+        const border = 0;
+        const format = gl.RED;
+        const type = gl.FLOAT;
+        gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, width, height, border,
+                    format, type, new Float32Array(data));
+        
+        // Set texture filtering
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+    // Ensure texture is filterable
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     }
 
     public setNumDrawElements(num: number): void {

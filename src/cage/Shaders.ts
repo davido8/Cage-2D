@@ -87,7 +87,8 @@ export const easelVSText = `#version 300 es
 
     uniform float u_cageGenerated;
 
-    out vec2 color;
+    uniform sampler2D u_mvc;
+
     out vec2 f_uv;
 
     float W(vec2 p0, int i) {
@@ -108,8 +109,8 @@ export const easelVSText = `#version 300 es
         vec2 p0_piminusone = normalize(pi_minusone - p0);
 
         // Get the angles.
-        float alphai = acos(dot(p0_pi, p0_piplusone));
-        float alphaj = acos(dot(p0_piminusone, p0_pi));
+        float alphai = acos(clamp(dot(p0_pi, p0_piplusone), -1.0, 1.0));
+        float alphaj = acos(clamp(dot(p0_piminusone, p0_pi), -1.0, 1.0));
 
         float w = tan(alphaj / 2.0) + tan(alphai / 2.0);
         return w / length(pi - p0);
@@ -148,17 +149,27 @@ export const easelVSText = `#version 300 es
             return;
         }
 
+        vec2 undeformedPos = vec2(0.0, 0.0);
         vec2 deformedPos = vec2(0.0, 0.0);
 
         int numVertices = int(u_numCageVertices);
         for (int i = 0; i < numVertices; i++) {
+            // float weight = texture(u_mvc, mvc_coord).r;
             float weight = lambda(gridVertex, i);
+
+            undeformedPos += weight * (u_vertices[i]);
             deformedPos += weight * (u_vertices[i] + u_offsets[i]);
         }
 
+        f_uv = (a_translation + (undeformedPos - deformedPos)) / u_gridSize;
 
-        f_uv = (deformedPos) / u_gridSize;
-        color = a_translation / u_resolution;
+        clipCoordinates = deformedPos / u_resolution;
+        clipCoordinates *= 2.0;
+        clipCoordinates -= 1.0;
+        clipCoordinates.y *= -1.0;
+
+        gl_Position = vec4(clipCoordinates, 0.0, 1.0);
+        f_uv = a_translation / u_gridSize;
     }
 `;
 
@@ -167,7 +178,6 @@ export const easelFSText = `#version 300 es
     precision mediump float;
 
     in vec2 f_uv;
-    in vec2 color;
 
     uniform sampler2D u_texture;
 
@@ -175,7 +185,7 @@ export const easelFSText = `#version 300 es
 
 
     void main() {
-        // FragColor = vec4(color, 0.0, 1.0);
+        FragColor = vec4(f_uv, 0.0, 1.0);
         FragColor = texture(u_texture, f_uv);
     }
 `;

@@ -21,15 +21,17 @@ export class CageAnimation extends CanvasAnimation {
   private pointShader: Shader;
   private lineShader: Shader;
 
-  // private handles: Handles;
-  private cage: Cage;
+  private imageName: string;
+
+  private activeCage: number;
+  private cages: Cage[];
   private mode: AnimationMode;
   private deforming: boolean;
 
   private static gridSize: number = 1000; // Number of squares along one edge of grid
 
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, image: string) {
     super(canvas);
 
     this.width = canvas.width;
@@ -37,6 +39,7 @@ export class CageAnimation extends CanvasAnimation {
     this.backgroundColor = new Vec4([0.424, 0.725, 0.741, 1.0]);
     this.registerEventListeners();
 
+    this.imageName = image;
     this.reset();
   }
 
@@ -46,9 +49,9 @@ export class CageAnimation extends CanvasAnimation {
   public reset(): void {    
     this.initPointShader();
     this.initLineShader();
-    this.initEasel();
+    this.initEasel(this.imageName);
     
-    this.cage = new Cage(this);
+    this.cages = new Cage(this);
     this.mode = AnimationMode.Drawing;
     this.deforming = false;
   }
@@ -75,7 +78,7 @@ export class CageAnimation extends CanvasAnimation {
     ], UniformType.FLOAT2);
   }
 
-  private initEasel(): void {
+  private initEasel(image: string): void {
     let widthOffset = this.width * 0.1;
     let heightOffset = this.height * 0.1;
 
@@ -120,7 +123,7 @@ export class CageAnimation extends CanvasAnimation {
     this.easelShader.addUniform('u_vertices', [], UniformType.FLOAT2ARRAY);
     this.easelShader.addUniform('u_offsets', [], UniformType.FLOAT2ARRAY);
     this.easelShader.addUniform('u_cageGenerated', [], UniformType.FLOAT);
-    this.easelShader.addTexture('static/pikmin.png');
+    this.easelShader.addTexture(image);
   }
 
   public draw(): void {
@@ -210,21 +213,44 @@ export class CageAnimation extends CanvasAnimation {
     }
   }
 
-  private W(triangle: Vec2[]): number {
-    let v0_normal = new Vec2(triangle[0].xy);
-    let v1_normal = new Vec2(triangle[1].xy);
-    let v2_normal = new Vec2(triangle[2].xy);
+  private W(p0: Vec2, pi: Vec2, pi_plus: Vec2, pi_minus: Vec2): number {
+    // Get all vectors we need.
+    let p0_pi = Vec2.difference(pi, p0).normalize();
+    let p0_piplus = Vec2.difference(pi_plus, p0).normalize();
+    let p0_piminus = Vec2.difference(pi_minus, p0).normalize();
 
-    v0_normal.normalize();
-    v1_normal.normalize();
-    v2_normal.normalize();
+    // Get the dots and clamp them.
+    let dot_alphai = Vec2.dot(p0_pi, p0_piplus);
+    let dot_alphaj = Vec2.dot(p0_piminus, p0_pi);
 
-    let thetai = Math.acos(Vec2.dot(v0_normal, v1_normal));
-    let thetaj = Math.acos(Vec2.dot(v0_normal, v2_normal));
+    // Get the angles.
+    let alphai = Math.acos(dot_alphai);
+    let alphaj = Math.acos(dot_alphaj);
 
-    let w = Math.tan(thetai / 2.0) + Math.tan(thetaj / 2.0);
+    let w = Math.tan(alphaj / 2.0) + Math.tan(alphai / 2.0);
+    return w / Vec2.difference(pi, p0).length();
+  }
 
-    return w / Vec2.difference(triangle[1], triangle[0]).length();
+  private lambda(p0: Vec2, target: number, cageVertices: Vec2[]): number {
+    let numerator = 0.0;
+
+    let cumsum = 0.0;
+    for (let i = 0; i < cageVertices.length; i++) {
+      let plus = (i + 1) % cageVertices.length;
+      let minus = i - 1;
+      if (minus < 0) {
+        minus = cageVertices.length - 1;
+      }
+
+      let w = this.W(p0, cageVertices[i], cageVertices[plus], cageVertices[minus]);
+      if (i == target) {
+        numerator = w;
+      }
+
+      cumsum += w;
+    }
+
+    return numerator / cumsum;
   }
 
   private generateMVC(): void {
@@ -248,40 +274,21 @@ export class CageAnimation extends CanvasAnimation {
         rawPos[1] + rawOff[i + 1],
       ]));
     }
-    console.log(rawOff);
 
     let allWeights: number[] = [];
 
     // Calculate the weights of each cage vertex on each grid vertex.
     for (let i = 0; i < gridVertices.length; i++) {
       let gridVertex = gridVertices[i];
-      console.log('Grid vertex ' + gridVertex.xy);
 
-      let weights: number[] = [];
       for (let j = 0; j < cageVertices.length; j++) {
-        let triangle: Vec2[] = [];
-        triangle.push(gridVertex);
-        triangle.push(cageVertices[j]);
-        triangle.push(cageVertices[j + 1 == cageVertices.length ? 0 : j + 1]);
-
-        let wi = this.W(triangle);
-
-        let cumsum = 0.0;
-        for (let k = 0; k < cageVertices.length; k++) {
-          triangle = [];
-          triangle.push(gridVertex);
-          triangle.push(cageVertices[k]);
-          triangle.push(cageVertices[k + 1 == cageVertices.length ? 0 : k + 1]);
-          cumsum += this.W(triangle);
-        }
-
-        weights.push(wi / cumsum);
+        allWeights.push(this.lambda(gridVertex, j, cageVertices));
       }
 
-      allWeights.push(...weights);
     }
 
     console.log(allWeights);
+    this.easelShader.addDataTexture('u_mvc', allWeights, CageAnimation.gridSize*cageVertices.length, CageAnimation.gridSize);
   }
 
   private onKeydown(key: KeyboardEvent): void {
@@ -294,13 +301,33 @@ export class CageAnimation extends CanvasAnimation {
         // this.generateMVC();
         this.mode = AnimationMode.Deform;
         break;
-      case 'Digit1':
+      case 'KeyD':
         this.cage.clearOffsets();
         this.mode = AnimationMode.Drawing;
         break;
-      case 'Digit2':
+      case 'KeyM':
         this.mode = AnimationMode.Deform;
         break;
+      case 'Digit1':
+        this.imageName = 'static/pikmin.png';
+        this.reset();
+        break;
+      case 'Digit2':
+        this.imageName = 'static/debug.png';
+        this.reset();
+        break;
+      case 'Digit3':
+        this.imageName = 'static/croc.jpg';
+        this.reset();
+        break; 
+      case 'Digit4':
+        this.imageName = 'static/face.jpg';
+        this.reset();
+        break; 
+      case 'Digit5':
+        this.imageName = 'static/person.jpg';
+        this.reset();
+        break; 
       default:
         console.log('Key ' + key.code + ' pressed.');
     }
@@ -330,6 +357,6 @@ export class CageAnimation extends CanvasAnimation {
 
 export function initializeCanvas(): void {
   const canvas = document.getElementById("glCanvas") as HTMLCanvasElement;
-  const canvasAnimation: CageAnimation = new CageAnimation(canvas);
+  const canvasAnimation: CageAnimation = new CageAnimation(canvas, 'static/pikmin.png');
   canvasAnimation.start();  
 }
